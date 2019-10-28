@@ -10,12 +10,10 @@ import (
 	"github.com/go-kit/kit/log"
 	"github.com/pkg/errors"
 
-	"github.com/fluxcd/flux/pkg/cluster"
 	"github.com/fluxcd/flux/pkg/event"
 	"github.com/fluxcd/flux/pkg/git"
 	"github.com/fluxcd/flux/pkg/manifests"
 	"github.com/fluxcd/flux/pkg/resource"
-	fluxsync "github.com/fluxcd/flux/pkg/sync"
 	"github.com/fluxcd/flux/pkg/update"
 )
 
@@ -58,6 +56,7 @@ func (d *Daemon) GetManifests(ctx context.Context, newRevision string) (map[stri
 		cancel()
 	}
 
+	// Run actual sync of resources on cluster
 	resourceStore, err := d.getManifestStore(working)
 	if err != nil {
 		return nil, errors.Wrap(err, "reading the repository checkout")
@@ -132,34 +131,6 @@ func getChangeSet(ctx context.Context, state revisionRatchet, headRev string, re
 	cancel()
 
 	return c, err
-}
-
-// doSync runs the actual sync of workloads on the cluster. It returns
-// a map with all resources it applied and sync errors it encountered.
-func doSync(ctx context.Context, manifestsStore manifests.Store, clus cluster.Cluster, syncSetName string,
-	logger log.Logger) (map[string]resource.Resource, []event.ResourceError, error) {
-	resources, err := manifestsStore.GetAllResourcesByID(ctx)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "loading resources from repo")
-	}
-
-	var resourceErrors []event.ResourceError
-	if err := fluxsync.Sync(syncSetName, resources, clus); err != nil {
-		switch syncerr := err.(type) {
-		case cluster.SyncError:
-			logger.Log("err", err)
-			for _, e := range syncerr {
-				resourceErrors = append(resourceErrors, event.ResourceError{
-					ID:    e.ResourceID,
-					Path:  e.Source,
-					Error: e.Error.Error(),
-				})
-			}
-		default:
-			return nil, nil, err
-		}
-	}
-	return resources, resourceErrors, nil
 }
 
 // getChangedResources calculates what resources are modified during
